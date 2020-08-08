@@ -15,10 +15,28 @@ import threading
 import socket
 from pprint import pprint
 
-def check_rsp(rsp):
-    pprint(rsp)
-    if rsp['code'] != '1':
-        raise RuntimeError('Request failed, error %s:%s' % (rsp['code'], rsp['msg']))
+def log_init(debugging):
+    # These two lines enable debugging at httplib level (requests->urllib3->http.client)
+    # You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
+    # The only thing missing will be the response.body which is not logged.
+    try:
+        import http.client as http_client
+    except ImportError:
+        # Python 2
+        import httplib as http_client
+
+    # You must initialize logging, otherwise you'll not see debug output.
+    logging.basicConfig()
+    requests_log = logging.getLogger("requests.packages.urllib3")
+    requests_log.propagate = True
+
+    if debugging:
+        logging.getLogger().setLevel(logging.DEBUG)
+        requests_log.setLevel(logging.DEBUG)
+        http_client.HTTPConnection.debuglevel = 1
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+        requests_log.setLevel(logging.INFO)
 
 def wyze_login(email, password):
     for i in range(0, 3):
@@ -33,9 +51,10 @@ def wyze_login(email, password):
     }
 
     payload = {'email':email, 'password':password}
-    r = requests.post("https://auth-prod.api.wyze.com/user/login", headers=headers, json=payload)
-    rsp = r.json()
-    pprint(rsp)
+    rsp = requests.post(
+        "https://auth-prod.api.wyze.com/user/login",
+        headers=headers, json=payload).json()
+    logging.debug(rsp)
 
     if not rsp['access_token']:
         params = {
@@ -45,9 +64,10 @@ def wyze_login(email, password):
         }
 
         payload = {}
-        r = requests.post('https://auth-prod.api.wyze.com/user/login/sendSmsCode', headers=headers, params=params, json=payload)
-        rsp = r.json()
-        pprint(rsp)
+        rsp = requests.post(
+            'https://auth-prod.api.wyze.com/user/login/sendSmsCode',
+            headers=headers, params=params, json=payload).json()
+        logging.debug(rsp)
 
         session_id = rsp['session_id']
         verification_code = input("Enter the verification code:")
@@ -61,9 +81,10 @@ def wyze_login(email, password):
             "verification_id":rsp['session_id'],
             "verification_code":verification_code}
 
-        r = requests.post("https://auth-prod.api.wyze.com/user/login", headers=headers, json=payload)
-        rsp = r.json()
-        pprint(rsp)
+        rsp = requests.post(
+            "https://auth-prod.api.wyze.com/user/login",
+            headers=headers, json=payload).json()
+        logging.debug(rsp)
     
     return {
         'phone_id': phone_id,
@@ -72,84 +93,74 @@ def wyze_login(email, password):
         'refresh_token': rsp['refresh_token'],
     }
 
+APP_NAME = "com.hualai"
+APP_VERSION = "2.11.40"
+PHONE_SYSTEM_TYPE = "2"
+
 BASE_URL = "https://api.wyzecam.com"
 SC = "a626948714654991afd3c0dbd7cdb901"
-SV_GET_V2_DEVICE_INFO = "81d1abc794ba45a39fdd21233d621e84"
-def get_device_info(creds, mac):
-    url = BASE_URL + "/app/v2/device/get_device_Info"
+
+def device_api(creds, url, sv, **params):
     payload = {
         'access_token': creds['access_token'],
-        "app_name": "com.hualai",
-        "app_ver": "com.hualai___2.11.40",
-        "app_version": "2.11.40",
-        "phone_id": creds["phone_id"],
-        "phone_system_type": "2",
-        "sc": SC,
-        "sv": SV_GET_V2_DEVICE_INFO,
-        "ts": int(time.time()) * 1000,
-        "device_mac": mac,
-        "device_model": 'Unknown',
-    }
-
-    r = requests.post(url, headers={'User-Agent': 'okhttp/3.8.1'}, json=payload)
-    rsp = r.json()
-    check_rsp(rsp)
-
-    return rsp['data']
-
-
-def upgrade(creds, model, mac, upgrade_url, md5):
-    SV_V2_RUN_ACTION = "011a6b42d80a4f32b4cc24bb721c9c96"
-    url = BASE_URL + "/app/v2/auto/run_action"
-    payload = {
-        'access_token': creds['access_token'],
-        "app_name": "com.hualai",
-        "app_ver": "com.hualai___2.11.40",
-        "app_version": "2.11.40",
+        "app_name": APP_NAME,
+        "app_version": APP_VERSION,
+        "phone_system_type": PHONE_SYSTEM_TYPE,
+        "app_ver": APP_NAME + "___" + APP_VERSION,
         "phone_id": creds['phone_id'],
-        "phone_system_type": "2",
         "sc": SC,
-        "sv": SV_V2_RUN_ACTION,
+        "sv": sv,
         "ts": int(time.time()) * 1000,
-        "provider_key": model,
-        "action_key": "upgrade",
-        "custom_string": "",
-        "instance_id": mac,
-        "action_params" : {
-            "url": upgrade_url,
-            "md5": md5,
-            "model": model
-        }
     }
 
-    r = requests.post(url, headers={'User-Agent': 'okhttp/3.8.1'}, json=payload)
-    rsp = r.json()
-    check_rsp(rsp)
+    logging.debug(params)
+    payload.update(params)
+
+    rsp = requests.post(BASE_URL + url, headers={'User-Agent': 'okhttp/3.8.1'}, json=payload).json()
+    logging.debug(rsp)
+    if rsp['code'] != '1':
+        raise RuntimeError('Request failed, error %s:%s' % (rsp['code'], rsp['msg']))
 
     return rsp['data']
 
-def log_verbose():
-    # These two lines enable debugging at httplib level (requests->urllib3->http.client)
-    # You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
-    # The only thing missing will be the response.body which is not logged.
-    try:
-        import http.client as http_client
-    except ImportError:
-        # Python 2
-        import httplib as http_client
-    http_client.HTTPConnection.debuglevel = 1
+def get_device_list(creds):
+    URL_V2_GET_DEVICE_LIST = "/app/v2/device/get_device_list"
+    SV_V2_GET_DEVICE_LIST = "f0ef3f988133430aaf14f8f00add6d2d"
+    return device_api(creds, URL_V2_GET_DEVICE_LIST, SV_V2_GET_DEVICE_LIST)
 
-    # You must initialize logging, otherwise you'll not see debug output.
-    logging.basicConfig()
-    logging.getLogger().setLevel(logging.DEBUG)
-    requests_log = logging.getLogger("requests.packages.urllib3")
-    requests_log.setLevel(logging.DEBUG)
-    requests_log.propagate = True
+def get_device_info(creds, mac, model='Unknown'):
+    URL_V2_GET_DEVICE_INFO = "/app/v2/device/get_device_info"
+    SV_V2_GET_DEVICE_INFO = "81d1abc794ba45a39fdd21233d621e84"
+    return device_api(creds, URL_V2_GET_DEVICE_INFO, SV_V2_GET_DEVICE_INFO, device_mac=mac, device_model=model)
+
+def run_action(creds, provider, action, instance, params):
+    URL_V2_RUN_ACTION = "/app/v2/auto/run_action"
+    SV_V2_RUN_ACTION = "011a6b42d80a4f32b4cc24bb721c9c96"
+    return device_api(
+        creds, URL_V2_RUN_ACTION, SV_V2_RUN_ACTION,
+        provider_key=provider, action_key=action, instance_id=instance,
+        custom_string="", action_params=params)
+
+def push_update(creds, model, mac, update_url, md5):
+    return run_action(creds, model, "upgrade", mac, {"url": update_url, "md5": md5, "model": model})
+
+def list_devices(creds, args):
+    data = get_device_list(creds)
+    devices = sorted(data['device_list'], key=lambda x:x['product_model'], reverse=True)
+    for x in devices:
+        if args.models and (x['product_model'] not in args.models):
+            continue
+
+        print("Device Type:       %s (%s)" % (x['product_type'], x['product_model']))
+        print("Device MAC:        %s" % x['mac'])
+        print("Firmware Version:  %s" % x['firmware_ver'])
+        print("Device Name:       %s" % x['nickname'])
+        print()
 
 def start_http_server(firmware_data, port, use_ssl):
     class Handler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
-            print("request received, path=%s" % self.path)
+            logging.debug("request received, path=%s" % self.path)
             self.send_response(200)
             self.send_header('Content-Disposition', 'attachment; filename=firmware.bin')
             self.send_header('Content-type', 'application/octet-stream')
@@ -163,7 +174,7 @@ def start_http_server(firmware_data, port, use_ssl):
         port = 443 if use_ssl else 80
 
     server_address = ('', port)
-    httpd = http.server.HTTPServer(server_address, Handler)  # http.server.SimpleHTTPRequestHandler)
+    httpd = http.server.HTTPServer(server_address, Handler)
     if use_ssl:
         httpd.socket = ssl.wrap_socket(httpd.socket,
                                     server_side=True,
@@ -174,9 +185,9 @@ def start_http_server(firmware_data, port, use_ssl):
     threading.Thread(target=httpd.serve_forever).start()
     return httpd
 
-def get_host_ip(probe_ip):
+def get_host_ip(dest_ip):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect((probe_ip, 8888))
+    s.connect((dest_ip, 8888))
     return s.getsockname()[0]
 
 def build_url(ip, use_ssl=False, port=None):
@@ -191,33 +202,122 @@ def build_url(ip, use_ssl=False, port=None):
     url += '/firmware.bin'
     return url
 
+def update_devices(creds, args):
+    if args.models:
+        data = get_device_list(creds)
+        args.devices = [x['mac'] for x in data['device_list'] if x['product_model'] in args.models]
+
+    firmware_data = open(args.firmware, 'rb').read()
+    md5 = hashlib.md5(firmware_data).hexdigest()
+
+    server = None
+    for mac in args.devices:
+        logging.info("Checking device, mac=%s" % mac)
+        try:
+            dev_info = get_device_info(creds, mac)
+        except RuntimeError as e:
+            print(e)
+            continue
+
+        # TODO: Skipping devices not having valid IP address
+        print()
+        print('Device type:      %s (%s)' % (dev_info['product_type'], dev_info['product_model']))
+        print('Device name:      %s' % dev_info['nickname'])
+        print('Firmware version: %s' % dev_info['firmware_ver'])
+        print('IP Address:       %s' % dev_info['ip'])
+        print()
+
+        answer = input("Pushing firmware to this device? [y/N]:")
+        if answer.upper() != 'Y':
+            logging.info("Skipping device %s (%s)..." % (dev_info['nickname'], mac))
+            continue
+
+        if not server:
+            if not args.ip:
+                args.ip = get_host_ip(dev_info['ip'])
+            url = build_url(args.ip, args.ssl, args.port)
+            server = start_http_server(firmware_data, args.port, args.ssl)
+            logging.info("Serving firmware file '%s' as '%s', md5=%s" % (args.firmware, url, md5))
+
+        push_update(creds, dev_info['product_model'], mac, url, md5)
+        time.sleep(3)
+
+    if server:
+        print("Press Ctrl+C when all the updates are done...")
+        try:
+            while True:
+                time.sleep(1)
+                print(".", end="", flush=True)
+        except KeyboardInterrupt:
+            print()
+
+        logging.info("Stopping http server...")
+        server.shutdown()
+
+    logging.info('Done.')
 
 parser = argparse.ArgumentParser(description='Wyze product updater.')
-parser.add_argument('--mac', required=True, help='MAC address of the target device.')
-parser.add_argument('--user', help='User name of the associated wyze account.')
-parser.add_argument('--password', help='Password of the associated wyze account.')
-parser.add_argument('--firmware', required=True, help='Firmware file')
-parser.add_argument('--ssl', action='store_true', help='Use HTTPS to serve the firmware data.')
-parser.add_argument('--port', type=int, help='HTTP(S) serving port.')
-parser.add_argument('--ip', help='HTTP(S) serving address.')
+parser.add_argument(
+    '--user',
+    help='User name of the associated wyze account.')
+parser.add_argument(
+    '--password',
+    help='Password of the associated wyze account.')
+parser.add_argument(
+    '--debug', action='store_true',
+    help='Output debug informaiton.')
+parser.set_defaults(debug=False)
 
-parser.add_argument('--verbose', action='store_true', help='Output debugging informaiton')
-parser.set_defaults(verbose=False)
+subparsers = parser.add_subparsers(
+    dest='action', required=True,
+    help='Supported actions')
+parser.set_defaults(action=list_devices)
+
+# TODO: Adding model string for Wye Bulb
+SUPPORTED_MODELS = ['WYZEC1-JZ', 'WYZECP1_JEF', 'WLPP1']
+
+list_parser = subparsers.add_parser('list', help='Listing devices')
+list_parser.set_defaults(action=list_devices)
+list_parser.add_argument(
+    '--models', nargs='+', choices=SUPPORTED_MODELS,
+    help='Specifying target devices by a list of device models.')
+
+update_parser = subparsers.add_parser(
+    'update', help='Updating devices')
+update_parser.set_defaults(action=update_devices)
+device_specifier = update_parser.add_mutually_exclusive_group()
+device_specifier.add_argument(
+    '--devices',  nargs='+',
+    help='Specifying target devices by a list of MAC addresses.')
+device_specifier.add_argument(
+    '--models', nargs='+', choices=SUPPORTED_MODELS,
+    help='Specifying target devices by a list of device models.')
+
+update_parser.add_argument(
+    '--firmware', required=True,
+    help='Firmware file, required for update command.')
+update_parser.add_argument(
+    '--ssl', action='store_true',
+    help='Use HTTPS to serve the firmware data, default value: False')
+update_parser.add_argument(
+    '--port', type=int,
+    help='HTTP(S) serving port, default value: 80 (HTTP) or 443 (HTTPS).')
+update_parser.add_argument(
+    '--ip', help='HTTP(S) server binding address, default value: <auto detected>.')
 
 args = parser.parse_args()
 
-if args.verbose:
-    log_verbose()
+log_init(args.debug)
 
 try:
     with open('.tokens') as f:
-        print("Using saved credentials from .tokens...")
+        logging.info("Using saved credentials from .tokens...")
         creds = json.load(f)
 except OSError:
     creds = None
 
 if not creds:
-    print("No saved credentials found, logging in with username/password...")
+    logging.info("No saved credentials found, logging in with username/password...")
     if not args.user:
         args.user = input("Please enter the account name:")
     
@@ -228,43 +328,8 @@ if not creds:
     try:
         with open('.tokens', 'w') as f:
             json.dump(creds, f)
-            print("Credentials saved to .tokens")
+            logging.info("Credentials saved to .tokens")
     except OSError:
-        print("Failed to save credentials.")
+        logging.error("Failed to save credentials.")
 
-print("Checking device, mac=%s" % args.mac)
-try:
-    dev_info = get_device_info(creds, args.mac)
-except RuntimeError as e:
-    print(e)
-
-print('Device type:     ', dev_info['product_type'])
-print('Device model:    ', dev_info['product_model'])
-print('Device name:     ', dev_info['nickname'])
-print('Firmware version:', dev_info['firmware_ver'])
-print('IP Address:      ', dev_info['ip'])
-
-firmware_data = open(args.firmware, 'rb').read()
-md5 = hashlib.md5(firmware_data).hexdigest()
-
-if not args.ip:
-    args.ip = get_host_ip(dev_info['ip'])
-url = build_url(args.ip, args.ssl, args.port)
-
-server = start_http_server(firmware_data, args.port, args.ssl)
-
-print("Sending firmware file '%s' as '%s', md5=%s" % (args.firmware, url, md5))
-upgrade(creds, dev_info['product_model'], args.mac, url, md5)
-
-print("Press Ctrl+C when the upgrade finished...")
-try:
-    while True:
-        time.sleep(1)
-        print(".", end="", flush=True)
-except KeyboardInterrupt:
-    pass
-
-print("Stopping http server...")
-server.shutdown()
-
-print('Done.')
+args.action(creds, args)
