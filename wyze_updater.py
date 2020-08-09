@@ -256,7 +256,7 @@ def update_devices(creds, args):
 
 parser = argparse.ArgumentParser(description='Wyze product updater.')
 parser.add_argument(
-    '--user'
+    '--user',
     help='User name of the associated wyze account.')
 parser.add_argument(
     '-password',
