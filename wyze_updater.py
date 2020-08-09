@@ -157,7 +157,7 @@ def list_devices(creds, args):
         print("Device Name:       %s" % x['nickname'])
         print()
 
-def start_http_server(firmware_data, port, use_ssl):
+def start_http_server(firmware_data, addr, port, use_ssl):
     class Handler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
             logging.debug("request received, path=%s" % self.path)
@@ -173,7 +173,7 @@ def start_http_server(firmware_data, port, use_ssl):
     if not port:
         port = 443 if use_ssl else 80
 
-    server_address = ('', port)
+    server_address = (addr, port)
     httpd = http.server.HTTPServer(server_address, Handler)
     if use_ssl:
         httpd.socket = ssl.wrap_socket(httpd.socket,
@@ -233,10 +233,10 @@ def update_devices(creds, args):
             continue
 
         if not server:
-            if not args.ip:
-                args.ip = get_host_ip(dev_info['ip'])
-            url = build_url(args.ip, args.ssl, args.port)
-            server = start_http_server(firmware_data, args.port, args.ssl)
+            if not args.addr:
+                args.addr = get_host_ip(dev_info['ip'])
+            url = build_url(args.addr, args.ssl, args.port)
+            server = start_http_server(firmware_data, args.addr, args.port, args.ssl)
             logging.info("Serving firmware file '%s' as '%s', md5=%s" % (args.firmware, url, md5))
 
         push_update(creds, dev_info['product_model'], mac, url, md5)
@@ -254,14 +254,12 @@ def update_devices(creds, args):
         logging.info("Stopping http server...")
         server.shutdown()
 
-    logging.info('Done.')
-
 parser = argparse.ArgumentParser(description='Wyze product updater.')
 parser.add_argument(
-    '--user',
+    '--user'
     help='User name of the associated wyze account.')
 parser.add_argument(
-    '--password',
+    '-password',
     help='Password of the associated wyze account.')
 parser.add_argument(
     '--debug', action='store_true',
@@ -279,7 +277,7 @@ SUPPORTED_MODELS = ['WYZEC1-JZ', 'WYZECP1_JEF', 'WLPP1']
 list_parser = subparsers.add_parser('list', help='Listing devices')
 list_parser.set_defaults(action=list_devices)
 list_parser.add_argument(
-    '--models', nargs='+', choices=SUPPORTED_MODELS,
+    '-m', '--model', dest='models', action='append', choices=SUPPORTED_MODELS,
     help='Specifying target devices by a list of device models.')
 
 update_parser = subparsers.add_parser(
@@ -287,23 +285,23 @@ update_parser = subparsers.add_parser(
 update_parser.set_defaults(action=update_devices)
 device_specifier = update_parser.add_mutually_exclusive_group()
 device_specifier.add_argument(
-    '--devices',  nargs='+',
+    '-d',  '--device', dest='devices', action='append',
     help='Specifying target devices by a list of MAC addresses.')
 device_specifier.add_argument(
-    '--models', nargs='+', choices=SUPPORTED_MODELS,
+    '-m', '--model', dest='models', action='append', choices=SUPPORTED_MODELS,
     help='Specifying target devices by a list of device models.')
 
 update_parser.add_argument(
-    '--firmware', required=True,
+    '-f', '--firmware', required=True,
     help='Firmware file, required for update command.')
 update_parser.add_argument(
-    '--ssl', action='store_true',
+    '-s', '--ssl', action='store_true',
     help='Use HTTPS to serve the firmware data, default value: False')
 update_parser.add_argument(
-    '--port', type=int,
+    '-p', '--port', type=int,
     help='HTTP(S) serving port, default value: 80 (HTTP) or 443 (HTTPS).')
 update_parser.add_argument(
-    '--ip', help='HTTP(S) server binding address, default value: <auto detected>.')
+    '-a', '--addr', help='HTTP(S) server binding address, default value: <auto detected>.')
 
 args = parser.parse_args()
 
