@@ -57,29 +57,47 @@ def wyze_login(email, password):
     logging.debug(rsp)
 
     if not rsp['access_token']:
-        params = {
-            'mfaPhoneType': 'Primary',
-            'sessionId': rsp['sms_session_id'],
-            'userId': rsp['user_id'],
-        }
+        if "TotpVerificationCode" in rsp.get("mfa_options"):
 
-        payload = {}
-        rsp = requests.post(
-            'https://auth-prod.api.wyze.com/user/login/sendSmsCode',
-            headers=headers, params=params, json=payload).json()
-        logging.debug(rsp)
+            print("Using TOTP app for 2FA")
+            verification_code = input("Enter the verification code:")
 
-        session_id = rsp['session_id']
-        verification_code = input("Enter the verification code:")
+            print("verification code: %s" % verification_code)
 
-        print("verification code: %s" % verification_code)
+            payload = {
+                "email": email,
+                "password": password,
+                "mfa_type":"TotpVerificationCode",
+                "verification_id":rsp["mfa_details"]["totp_apps"][0]["app_id"],
+                "verification_code":verification_code
+            }
 
-        payload = {
-            "email": email,
-            "password": password,
-            "mfa_type":"PrimaryPhone",
-            "verification_id":rsp['session_id'],
-            "verification_code":verification_code}
+        else:
+            params = {
+                'mfaPhoneType': 'Primary',
+                'sessionId': rsp['sms_session_id'],
+                'userId': rsp['user_id'],
+            }
+
+            payload = {}
+            rsp = requests.post(
+                'https://auth-prod.api.wyze.com/user/login/sendSmsCode',
+                headers=headers, params=params, json=payload).json()
+            logging.debug(rsp)
+
+            session_id = rsp['session_id']
+
+            print("Using phone SMS for 2FA")
+            verification_code = input("Enter the verification code:")
+
+            print("verification code: %s" % verification_code)
+
+            payload = {
+                "email": email,
+                "password": password,
+                "mfa_type":"PrimaryPhone",
+                "verification_id":rsp['session_id'],
+                "verification_code":verification_code}
 
         rsp = requests.post(
             "https://auth-prod.api.wyze.com/user/login",
