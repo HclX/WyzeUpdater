@@ -277,8 +277,13 @@ parser.add_argument(
     '--user',
     help='User name of the associated wyze account.')
 parser.add_argument(
-    '-password',
+    '--password',
     help='Password of the associated wyze account.')
+parser.add_argument(
+    '--token',
+    default='.tokens',
+    help='File for reading and storing login credential tokens.')
+
 parser.add_argument(
     '--debug', action='store_true',
     help='Output debug informaiton.')
@@ -326,8 +331,8 @@ args = parser.parse_args()
 log_init(args.debug)
 
 try:
-    with open('.tokens') as f:
-        logging.info("Using saved credentials from .tokens...")
+    logging.info('Trying saved credentials from %s.', args.token)
+    with open(args.token) as f:
         creds = json.load(f)
 except OSError:
     creds = None
@@ -342,9 +347,9 @@ if not creds:
 
     creds = wyze_login(args.user, args.password)
     try:
-        with open('.tokens', 'w') as f:
+        with open(args.token, 'w') as f:
             json.dump(creds, f)
-            logging.info("Credentials saved to .tokens")
+            logging.info('Credentials saved to %s.', args.token)
     except OSError:
         logging.error("Failed to save credentials.")
 
