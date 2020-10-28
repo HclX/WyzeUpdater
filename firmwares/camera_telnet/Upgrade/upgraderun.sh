@@ -27,7 +27,7 @@ echo $PASSWD_SHADOW >/tmp/etc/shadow
 
 mount -o bind /tmp/etc /etc
 
-if [ "$SCRIPT_DIR" != "/system/init" ];
+if [ ! -f "/system/init/run_telnet.sh" ];
 then
   cp $0 /system/init/run_telnet.sh
   echo "#/system/init/run_telnet.sh &" >> /system/init/app_init.sh
