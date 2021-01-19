@@ -294,8 +294,14 @@ subparsers = parser.add_subparsers(
     help='Supported actions')
 parser.set_defaults(action=list_devices)
 
-# TODO: Adding model string for Wye Bulb
-SUPPORTED_MODELS = ['WYZEC1-JZ', 'WYZECP1_JEF', 'WLPP1']
+SUPPORTED_MODELS = [
+    'WYZEC1-JZ',        # V2
+    'WYZECP1_JEF',      # PAN
+    'WYZE_CAKP2JFUS',   # V3
+    'WYZEDB3',          # Doorbell
+    'WLPP1',            # Plug
+    'BS_WK1',           # Sprinkler
+    ]
 
 list_parser = subparsers.add_parser('list', help='Listing devices')
 list_parser.set_defaults(action=list_devices)
