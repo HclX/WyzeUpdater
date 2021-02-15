@@ -175,17 +175,22 @@ def list_devices(creds, args):
         print("Device Name:       %s" % x['nickname'])
         print()
 
-def start_http_server(firmware_data, addr, port, use_ssl):
+def start_http_server(firmware_data, addr, port, use_ssl, extra_dir=None):
     class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=extra_dir, **kwargs)
+
         def do_GET(self):
             logging.debug("request received, path=%s" % self.path)
-            self.send_response(200)
-            self.send_header('Content-Disposition', 'attachment; filename=firmware.bin')
-            self.send_header('Content-type', 'application/octet-stream')
-            self.send_header('Content-Length', len(firmware_data))
-            self.end_headers()
-
-            self.wfile.write(firmware_data)
+            if self.path == "/firmware.bin":
+                self.send_response(200)
+                self.send_header('Content-Disposition', 'attachment; filename=firmware.bin')
+                self.send_header('Content-type', 'application/octet-stream')
+                self.send_header('Content-Length', len(firmware_data))
+                self.end_headers()
+                self.wfile.write(firmware_data)
+            else:
+                super().do_GET()
             return
 
     if not port:
@@ -254,7 +259,7 @@ def update_devices(creds, args):
             if not args.addr:
                 args.addr = get_host_ip(dev_info['ip'])
             url = build_url(args.addr, args.ssl, args.port)
-            server = start_http_server(firmware_data, args.addr, args.port, args.ssl)
+            server = start_http_server(firmware_data, args.addr, args.port, args.ssl, args.serve_dir)
             logging.info("Serving firmware file '%s' as '%s', md5=%s" % (args.firmware, url, md5))
 
         push_update(creds, dev_info['product_model'], mac, url, md5)
@@ -331,6 +336,8 @@ update_parser.add_argument(
     help='HTTP(S) serving port, default value: 80 (HTTP) or 443 (HTTPS).')
 update_parser.add_argument(
     '-a', '--addr', help='HTTP(S) server binding address, default value: <auto detected>.')
+update_parser.add_argument(
+    '--serve-dir', help='Extra serving directory, default value: None')
 
 args = parser.parse_args()
 

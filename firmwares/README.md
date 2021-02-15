@@ -1,3 +1,4 @@
+# Enabling telnet on WyzeCam devices
 "camera_telnet.bin" is a sample of custom firmware update designed to enable
 telnetd on Wyze cameras. If runs successfully, the camera's telnetd will be
 enabled temporarily (lost after reboot) with username `root` and no password.
@@ -15,3 +16,14 @@ following command:
 ```
   openssl passwd -1 -salt <YOUR SALT> <YOUR PASSWORD>
 ```
+# Converting Wyze plug/bulb to Tasmota devices
+"wyze_plug_flasher.bin" is a sample of custom firmware update designed to
+convert a Wyze plug/bulb device into a Tasmota device. All credits go to `elahd`.
+For details, please check https://github.com/elahd/wyze_plug_flasher.
+
+This firmware is built from a clone of elahd's github repository. The only
+difference is this one enables original firmware backup functionality for
+research purpose.
+
+WARNNING:
+This can permanently brick your Wyze plug/bulb if not doing it correctly.
