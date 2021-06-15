@@ -13,6 +13,7 @@ import http.server, ssl
 import os
 import threading
 import socket
+import validators
 from pprint import pprint
 
 def log_init(debugging):
@@ -166,11 +167,13 @@ def list_devices(creds, args):
     data = get_device_list(creds)
     devices = sorted(data['device_list'], key=lambda x:x['product_model'], reverse=True)
     for x in devices:
+
         if args.models and (x['product_model'] not in args.models):
             continue
 
         print("Device Type:       %s (%s)" % (x['product_type'], x['product_model']))
         print("Device MAC:        %s" % x['mac'])
+        print("IP Address:        %s" % x['device_params']['ip'])
         print("Firmware Version:  %s" % x['firmware_ver'])
         print("Device Name:       %s" % x['nickname'])
         print()
@@ -226,12 +229,27 @@ def build_url(ip, use_ssl=False, port=None):
     return url
 
 def update_devices(creds, args):
+    local = (args.mode == 'local')
+
     if args.models:
         data = get_device_list(creds)
         args.devices = [x['mac'] for x in data['device_list'] if x['product_model'] in args.models]
 
-    firmware_data = open(args.firmware, 'rb').read()
-    md5 = hashlib.md5(firmware_data).hexdigest()
+    if local:
+        firmware_data = open(args.firmware, 'rb').read()
+        md5 = hashlib.md5(firmware_data).hexdigest()
+    else:
+        # Downloads remote firmware to generate MD5. This is a heavy task,
+        # but not a deal breaker considering that most firmware will be < 2 MB.
+        # TODO: Allow users to submit MD5 via command line to bypass this step.
+        logging.info("Downloading firmware to generate MD5 hash.")
+        if not validators.url(args.firmware):
+            raise RuntimeError('\'%s\' is not a valid URL.' % args.firmware)
+        r = requests.get(args.firmware, stream=True)
+        m = hashlib.md5()
+        for line in r.iter_lines():
+            m.update(line)
+        md5 = m.hexdigest()
 
     server = None
     for mac in args.devices:
@@ -255,12 +273,15 @@ def update_devices(creds, args):
             logging.info("Skipping device %s (%s)..." % (dev_info['nickname'], mac))
             continue
 
-        if not server:
+        if not server and local:
             if not args.addr:
                 args.addr = get_host_ip(dev_info['ip'])
             url = build_url(args.addr, args.ssl, args.port)
             server = start_http_server(firmware_data, args.addr, args.port, args.ssl, args.serve_dir)
             logging.info("Serving firmware file '%s' as '%s', md5=%s" % (args.firmware, url, md5))
+        elif not local:
+            url = args.firmware
+            logging.info("Pushing firmware URL to device.")
 
         push_update(creds, dev_info['product_model'], mac, url, md5)
         time.sleep(3)
@@ -308,6 +329,11 @@ SUPPORTED_MODELS = [
     'BS_WK1',           # Sprinkler
     ]
 
+SUPPORTED_MODES = [
+    'local',
+    'remote'
+]
+
 list_parser = subparsers.add_parser('list', help='Listing devices')
 list_parser.set_defaults(action=list_devices)
 list_parser.add_argument(
@@ -326,17 +352,23 @@ device_specifier.add_argument(
     help='Specifying target devices by a list of device models.')
 
 update_parser.add_argument(
-    '-f', '--firmware', required=True,
-    help='Firmware file, required for update command.')
+    '-x', '--mode', required=False, choices=SUPPORTED_MODES, default="local",
+    help='Specifies whether firmware is path to local file or URL to remote file, default value: local or remote.')
+
 update_parser.add_argument(
+    '-f', '--firmware', required=True,
+    help='Path to local firmware binary or URL of hosted binary, depending on selected mode (--mode).')
+
+local_group = update_parser.add_argument_group("local_group", "Parameters for configuring local file server.")
+local_group.add_argument(
     '-s', '--ssl', action='store_true',
     help='Use HTTPS to serve the firmware data, default value: False')
-update_parser.add_argument(
+local_group.add_argument(
     '-p', '--port', type=int,
     help='HTTP(S) serving port, default value: 80 (HTTP) or 443 (HTTPS).')
-update_parser.add_argument(
+local_group.add_argument(
     '-a', '--addr', help='HTTP(S) server binding address, default value: <auto detected>.')
-update_parser.add_argument(
+local_group.add_argument(
     '--serve-dir', help='Extra serving directory, default value: None')
 
 args = parser.parse_args()

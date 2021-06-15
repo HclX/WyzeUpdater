@@ -1,0 +1,9 @@
+certifi==2021.5.30
+chardet==4.0.0
+decorator==5.0.9
+idna==2.10
+pyparsing==2.4.7
+requests==2.25.1
+six==1.16.0
+urllib3==1.26.5
+validators==0.18.2
