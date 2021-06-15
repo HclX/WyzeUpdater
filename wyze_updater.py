@@ -167,11 +167,13 @@ def list_devices(creds, args):
     data = get_device_list(creds)
     devices = sorted(data['device_list'], key=lambda x:x['product_model'], reverse=True)
     for x in devices:
+
         if args.models and (x['product_model'] not in args.models):
             continue
 
         print("Device Type:       %s (%s)" % (x['product_type'], x['product_model']))
         print("Device MAC:        %s" % x['mac'])
+        print("IP Address:        %s" % x['device_params']['ip'])
         print("Firmware Version:  %s" % x['firmware_ver'])
         print("Device Name:       %s" % x['nickname'])
         print()
