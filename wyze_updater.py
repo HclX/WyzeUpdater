@@ -11,6 +11,7 @@ import hashlib
 import uuid
 import http.server, ssl
 import os
+import errno
 import threading
 import socket
 from pprint import pprint
@@ -159,8 +160,8 @@ def run_action(creds, provider, action, instance, params):
         provider_key=provider, action_key=action, instance_id=instance,
         custom_string="", action_params=params)
 
-def push_update(creds, model, mac, update_url, md5):
-    return run_action(creds, model, "upgrade", mac, {"url": update_url, "md5": md5, "model": model})
+def push_update(creds, model, mac, update_url, md5, ver):
+    return run_action(creds, model, "upgrade", mac, {"url": update_url, "md5": md5, "model": model, "firmware_ver": ver})
 
 def list_devices(creds, args):
     data = get_device_list(creds)
@@ -175,22 +176,20 @@ def list_devices(creds, args):
         print("Device Name:       %s" % x['nickname'])
         print()
 
-def start_http_server(firmware_data, addr, port, use_ssl, extra_dir=None):
+def start_http_server(firmware_data, addr, port, use_ssl):
     class Handler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=extra_dir, **kwargs)
+            super().__init__(*args, **kwargs)
 
         def do_GET(self):
             logging.debug("request received, path=%s" % self.path)
-            if self.path == "/firmware.bin":
-                self.send_response(200)
-                self.send_header('Content-Disposition', 'attachment; filename=firmware.bin')
-                self.send_header('Content-type', 'application/octet-stream')
-                self.send_header('Content-Length', len(firmware_data))
-                self.end_headers()
-                self.wfile.write(firmware_data)
-            else:
-                super().do_GET()
+            self.send_response(200)
+            self.send_header('Content-Disposition', 'attachment; filename=firmware.bin')
+            self.send_header('Content-type', 'application/octet-stream')
+            self.send_header('Content-Length', len(firmware_data))
+            self.end_headers()
+
+            self.wfile.write(firmware_data)
             return
 
     if not port:
@@ -213,16 +212,18 @@ def get_host_ip(dest_ip):
     s.connect((dest_ip, 8888))
     return s.getsockname()[0]
 
-def build_url(ip, use_ssl=False, port=None):
+UPDATE_URL_PATH = "/UpgradeKit/firmware.bin"
+
+def build_url(host_name, use_ssl=False, port=None):
     if use_ssl:
-        url = 'https://' + ip
+        url = 'https://' + host_name
     else:
-        url = 'http://' + ip
+        url = 'http://' + host_name
     
     if port:
         url += ':%d' % port
     
-    url += '/firmware.bin'
+    url += UPDATE_URL_PATH
     return url
 
 def update_devices(creds, args):
@@ -258,11 +259,18 @@ def update_devices(creds, args):
         if not server:
             if not args.addr:
                 args.addr = get_host_ip(dev_info['ip'])
-            url = build_url(args.addr, args.ssl, args.port)
-            server = start_http_server(firmware_data, args.addr, args.port, args.ssl, args.serve_dir)
+
+            if not args.host_name:
+                args.host_name = args.addr
+            
+            if not args.firmware_ver:
+                args.firmware_ver = "9.9.9.9"
+
+            url = build_url(args.host_name, args.ssl, args.port)
+            server = start_http_server(firmware_data, args.addr, args.port, args.ssl)
             logging.info("Serving firmware file '%s' as '%s', md5=%s" % (args.firmware, url, md5))
 
-        push_update(creds, dev_info['product_model'], mac, url, md5)
+        push_update(creds, dev_info['product_model'], mac, url, md5, args.firmware_ver)
         time.sleep(3)
 
     if server:
@@ -329,15 +337,20 @@ update_parser.add_argument(
     '-f', '--firmware', required=True,
     help='Firmware file, required for update command.')
 update_parser.add_argument(
+    '-v', '--firmware-ver',
+    help='Firmware version, default to 9.9.9.9')
+update_parser.add_argument(
     '-s', '--ssl', action='store_true',
     help='Use HTTPS to serve the firmware data, default value: False')
+update_parser.add_argument(
+    '-n', '--host-name',
+    help='Use specified host name for the upgrade URL, requires DNS spoofing.')
+
 update_parser.add_argument(
     '-p', '--port', type=int,
     help='HTTP(S) serving port, default value: 80 (HTTP) or 443 (HTTPS).')
 update_parser.add_argument(
     '-a', '--addr', help='HTTP(S) server binding address, default value: <auto detected>.')
-update_parser.add_argument(
-    '--serve-dir', help='Extra serving directory, default value: None')
 
 args = parser.parse_args()
 
