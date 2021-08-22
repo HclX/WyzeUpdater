@@ -142,10 +142,10 @@ def device_api(creds, url, sv, **params):
 
     return rsp['data']
 
-def get_device_list(creds):
-    URL_V2_GET_DEVICE_LIST = "/app/v2/device/get_device_list"
-    SV_V2_GET_DEVICE_LIST = "f0ef3f988133430aaf14f8f00add6d2d"
-    return device_api(creds, URL_V2_GET_DEVICE_LIST, SV_V2_GET_DEVICE_LIST)
+def get_object_list(creds):
+    URL_V2_GET_OBJECT_LIST = "/app/v2/home_page/get_object_list"
+    SV_V2_GET_OBJECT_LIST = "c417b62d72ee44bf933054bdca183e77"
+    return device_api(creds, URL_V2_GET_OBJECT_LIST, SV_V2_GET_OBJECT_LIST)
 
 def get_device_info(creds, mac, model='Unknown'):
     URL_V2_GET_DEVICE_INFO = "/app/v2/device/get_device_info"
@@ -164,7 +164,7 @@ def push_update(creds, model, mac, update_url, md5, ver):
     return run_action(creds, model, "upgrade", mac, {"url": update_url, "md5": md5, "model": model, "firmware_ver": ver})
 
 def list_devices(creds, args):
-    data = get_device_list(creds)
+    data = get_object_list(creds)
     devices = sorted(data['device_list'], key=lambda x:x['product_model'], reverse=True)
     for x in devices:
         if args.models and (x['product_model'] not in args.models):
@@ -174,6 +174,7 @@ def list_devices(creds, args):
         print("Device MAC:        %s" % x['mac'])
         print("Firmware Version:  %s" % x['firmware_ver'])
         print("Device Name:       %s" % x['nickname'])
+        print("IP:                %s" % x['device_params'].get('ip', 'n/a'))
         print()
 
 def start_http_server(firmware_data, addr, port, use_ssl):
@@ -212,18 +213,16 @@ def get_host_ip(dest_ip):
     s.connect((dest_ip, 8888))
     return s.getsockname()[0]
 
-UPDATE_URL_PATH = "/UpgradeKit/firmware.bin"
-
-def build_url(host_name, use_ssl=False, port=None):
+def build_url(url_host, url_path, use_ssl=False, port=None):
     if use_ssl:
-        url = 'https://' + host_name
+        url = 'https://' + url_host
     else:
-        url = 'http://' + host_name
+        url = 'http://' + url_host
     
     if port:
         url += ':%d' % port
     
-    url += UPDATE_URL_PATH
+    url += url_path
     return url
 
 def update_devices(creds, args):
@@ -260,13 +259,16 @@ def update_devices(creds, args):
             if not args.addr:
                 args.addr = get_host_ip(dev_info['ip'])
 
-            if not args.host_name:
-                args.host_name = args.addr
+            if not args.url_host:
+                args.url_host = args.addr
+            
+            if not args.url_path:
+                args.url_path = "firmware.bin"
             
             if not args.firmware_ver:
                 args.firmware_ver = "9.9.9.9"
 
-            url = build_url(args.host_name, args.ssl, args.port)
+            url = build_url(args.url_host, args.url_path, args.ssl, args.port)
             server = start_http_server(firmware_data, args.addr, args.port, args.ssl)
             logging.info("Serving firmware file '%s' as '%s', md5=%s" % (args.firmware, url, md5))
 
@@ -308,13 +310,17 @@ subparsers = parser.add_subparsers(
 parser.set_defaults(action=list_devices)
 
 SUPPORTED_MODELS = [
+    'WYZEC1',           # V1
     'WYZEC1-JZ',        # V2
     'WYZECP1_JEF',      # PAN
     'WYZE_CAKP2JFUS',   # V3
     'WYZEDB3',          # Doorbell
     'WLPP1',            # Plug
     'BS_WK1',           # Sprinkler
-    ]
+    'WVODB1',           # Cam Outdoor Base
+    'WVOD1',            # Cam Outdoor
+    'GW3U',             # WyzeSense Hub
+]
 
 list_parser = subparsers.add_parser('list', help='Listing devices')
 list_parser.set_defaults(action=list_devices)
@@ -343,8 +349,12 @@ update_parser.add_argument(
     '-s', '--ssl', action='store_true',
     help='Use HTTPS to serve the firmware data, default value: False')
 update_parser.add_argument(
-    '-n', '--host-name',
-    help='Use specified host name for the upgrade URL, requires DNS spoofing.')
+    '--url-host',
+    help='Use specified host name in the upgrade URL, requires DNS spoofing.')
+
+update_parser.add_argument(
+    '--url-path',
+    help='Use specified path in the upgrade URL, required by some devices.')
 
 update_parser.add_argument(
     '-p', '--port', type=int,

@@ -2,6 +2,56 @@
 This is a tool capable of pushing arbitrary update images to wyze devices. It
 works by simulating itself as Wyze app.
 
+## Latest update
+With latest Wyze server side change, now the update target has to be from one
+of the following hosts:
+
+* d1fk93tz4plczb.cloudfront.net
+This is found used by V2 cameras. Here is a sample of the update URL:
+https://d1fk93tz4plczb.cloudfront.net/UpgradeKit/1621505419/Upgrade_4.9.7.608_05200304.tar
+
+* s3-us-west-2.amazonaws.com
+This is found used by V3 cameras with something like the following:
+https://s3-us-west-2.amazonaws.com/wuv2/upgrade/WYZE_CAKP2JFUS/firmware/4.36.3.19.tar
+
+* d2h8pzxcxn71bo.cloudfront.net
+This one is used by the WyzeSense Gateway (Home Monitoring System) in the
+following form:
+https://d2h8pzxcxn71bo.cloudfront.net/upgrade/GW3U/firmware/4.32.4.295.tar
+
+Only URLs with the above form will be approved by the Wyze update server and
+forwarded to the device side.
+
+This also means you will need to use DNS spoofing otherwise even if it reaches
+the device, the device won't be able to get your own firmware update package.
+
+To make it worse, most of the devices (verified on V2/Pan latest version) are
+also requiring the URL to be started with `https` and they verify the
+corresponding SSL certificate. This basically makes this tool effectively dead
+for those devices. Other still working devices might also do some validations
+on the URL so you will need to change accordingly with the new "--url-host" and
+'--url-path' flags for that.
+
+Here is an example wyze_updater.py command line and the generated URL that
+device will receive:
+
+Command line:
+```
+./wyze_updater.py \
+    --token ~/.wyze_token \
+    update -d <hms_mac> -f firmwares/hms_telnet.bin \
+    --url-host 'd1fk93tz4plczb.cloudfront.net' \
+    --url-path 'upgrade/GW3U/firmware/4.32.4.295.tar' \
+    -p 18080
+```
+
+URL received by the device:
+```
+http://d2h8pzxcxn71bo.cloudfront.net:18080/upgrade/GW3U/firmware/4.32.4.295.tar
+```
+
+
+## Usage
 To use this tool, you will need to specify at least the target device's MAC
 address, and the firmware file. While running, it will create a http(s) server
 to serve the firmware binary. By specifying "--ssl" will make a https server
