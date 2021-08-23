@@ -25,7 +25,8 @@ server URL and specific URL path pattern, and DNS spoofing to get it work.
 Here is an example:
 ./wyze_updater.py \
     --token ~/.wyze_token \
-    update -d <hms_mac> -f firmwares/hms_telnet.bin \
-    --url-host 'd1fk93tz4plczb.cloudfront.net' \
-    --url-path 'upgrade/GW3U/firmware/4.32.4.295.tar' \
+    update -d <hms mac> \
+    -f firmwares/hms_telnet.bin \
+    --url-host d1fk93tz4plczb.cloudfront.net \
+    --url-path /UpgradeKit/4.32.9.9.tar \
     -p 18080

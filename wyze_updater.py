@@ -222,6 +222,9 @@ def build_url(url_host, url_path, use_ssl=False, port=None):
     if port:
         url += ':%d' % port
     
+    if not url_path.startswith('/'):
+        url_path = '/' + url_path
+
     url += url_path
     return url
 
