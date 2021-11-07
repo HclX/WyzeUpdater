@@ -9,6 +9,7 @@ import logging
 import base64
 import hashlib
 import uuid
+import urllib
 import http.server, ssl
 import os
 import errno
@@ -171,6 +172,36 @@ def list_devices(creds, args):
         print("IP:                %s" % x['device_params'].get('ip', 'n/a'))
         print()
 
+def fetch_ota_info(creds, args):
+    UPDATE_VERSION_LIST_URL = "https://upgrade-api.wyzecam.com:8605/get_upgrade_version_by_list.ashx"
+    UPDATE_VERSION_LIST_SV = "f01713a5bf894b18813a3e2005a71a2b"
+
+    data = get_object_list(creds)
+    devices = sorted(data['device_list'], key=lambda x:x['product_model'], reverse=True)
+    devicelist = [{
+        "version" : x['firmware_ver'],
+        "devicemac" : x['mac'],
+        "productnum" : x['product_type'],
+        'productmodel': x['product_model'],
+        "hardwareversion": "0.0.0.0",
+        "testcode":"Beta Version"} for x in devices]
+    payload = {
+        "sc" : API_SC,
+        "sv" : UPDATE_VERSION_LIST_SV,
+        "devicelist" : devicelist
+    }
+    rsp = requests.post(
+        UPDATE_VERSION_LIST_URL,
+        headers={
+            'User-Agent': USER_AGENT,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        data=urllib.parse.urlencode(payload)).json()
+    for x in rsp['data']:
+        print("mac=%s, cur_ver=%s, model=%s" % (x["mac"], x["currentversion"], x["productmodel"]))
+        for pkg in x["package"]:
+            print("version=%s, url=%s" % (pkg["version"], pkg["url"]))
+
 def start_http_server(firmware_data, addr, port, use_ssl):
     class Handler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
@@ -324,6 +355,9 @@ list_parser.set_defaults(action=list_devices)
 list_parser.add_argument(
     '-m', '--model', dest='models', action='append', choices=SUPPORTED_MODELS,
     help='Specifying target devices by a list of device models.')
+
+ota_fetch_parser = subparsers.add_parser('fetch-ota', help='Retrieving official OTA updates')
+ota_fetch_parser.set_defaults(action=fetch_ota_info)
 
 update_parser = subparsers.add_parser(
     'update', help='Updating devices')
