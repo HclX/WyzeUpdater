@@ -39,85 +39,75 @@ def log_init(debugging):
         logging.getLogger().setLevel(logging.INFO)
         requests_log.setLevel(logging.INFO)
 
+APP_NAME = "com.hualai"
+APP_VERSION = "2.23.21"
+PHONE_SYSTEM_TYPE = "2"
+USER_AGENT = "wyze_android/" + APP_VERSION + " (Pixel 4; Android 11; Scale/2.75; Height/2148; Width/1080)"
+
+API_BASE_URL = "https://api.wyzecam.com"
+AUTH_BASE_URL = "https://auth-prod.api.wyze.com"
+
+API_SC = "a626948714654991afd3c0dbd7cdb901"
+
+class WyzeApiError(Exception):
+    def __init__(self, rsp):
+        self.code = rsp["code"]
+        self.msg = rsp["msg"]
+
+def auth_api(url, phone_id, params={}, payload={}):
+    headers = {
+        'Phone-Id': phone_id,
+        'User-Agent': USER_AGENT,
+        'X-API-Key': 'RckMFKbsds5p6QY3COEXc2ABwNTYY0q18ziEiSEm',
+    }
+
+    rsp = requests.post(
+        AUTH_BASE_URL + url, headers=headers, params=params, json=payload).json()
+    logging.debug(rsp)
+    return rsp
+
 def wyze_login(email, password):
+    AUTH_LOGIN_URL = "/user/login"
+    AUTH_SEND_SMS_CODE_URL = AUTH_LOGIN_URL + "/sendSmsCode"
+
     for i in range(0, 3):
         password = hashlib.md5(password.encode('ascii')).hexdigest()
 
     phone_id = str(uuid.uuid4())
 
-    headers = {
-        'Phone-Id': phone_id,
-        'User-Agent': 'wyze_android_2.11.40',
-        'X-API-Key': 'RckMFKbsds5p6QY3COEXc2ABwNTYY0q18ziEiSEm',
-    }
-
-    payload = {'email':email, 'password':password}
-    rsp = requests.post(
-        "https://auth-prod.api.wyze.com/user/login",
-        headers=headers, json=payload).json()
-    logging.debug(rsp)
-
+    auth_payload = {'email':email, 'password':password}
+    rsp = auth_api(AUTH_LOGIN_URL, phone_id, payload=auth_payload)
     if not rsp['access_token']:
         if "TotpVerificationCode" in rsp.get("mfa_options"):
-
             print("Using TOTP app for 2FA")
-            verification_code = input("Enter the verification code:")
-
-            print("verification code: %s" % verification_code)
-
-            payload = {
-                "email": email,
-                "password": password,
-                "mfa_type":"TotpVerificationCode",
-                "verification_id":rsp["mfa_details"]["totp_apps"][0]["app_id"],
-                "verification_code":verification_code
-            }
-
+            auth_payload["mfa_type"] = "TotpVerificationCode"
+            auth_payload["verification_id"] = rsp["mfa_details"]["totp_apps"][0]["app_id"]
         else:
+            print("Using phone SMS for 2FA")
+            auth_payload["mfa_type"] = "PrimaryPhone"
+
             params = {
                 'mfaPhoneType': 'Primary',
                 'sessionId': rsp['sms_session_id'],
                 'userId': rsp['user_id'],
             }
-
-            payload = {}
-            rsp = requests.post(
-                'https://auth-prod.api.wyze.com/user/login/sendSmsCode',
-                headers=headers, params=params, json=payload).json()
+            rsp = auth_api(AUTH_SEND_SMS_CODE_URL, phone_id, params=params)
             logging.debug(rsp)
+            auth_payload["verification_id"] = rsp['session_id']
 
-            session_id = rsp['session_id']
+        code = input("Enter the verification code:")
+        print("verification code: %s" % code)
+        auth_payload["verification_code"] = code
 
-            print("Using phone SMS for 2FA")
-            verification_code = input("Enter the verification code:")
-
-            print("verification code: %s" % verification_code)
-
-            payload = {
-                "email": email,
-                "password": password,
-                "mfa_type":"PrimaryPhone",
-                "verification_id":rsp['session_id'],
-                "verification_code":verification_code}
-
-        rsp = requests.post(
-            "https://auth-prod.api.wyze.com/user/login",
-            headers=headers, json=payload).json()
+        rsp = auth_api(AUTH_LOGIN_URL, phone_id, payload=auth_payload)
         logging.debug(rsp)
-    
+
     return {
         'phone_id': phone_id,
         'user_id': rsp['user_id'],
         'access_token': rsp['access_token'],
         'refresh_token': rsp['refresh_token'],
     }
-
-APP_NAME = "com.hualai"
-APP_VERSION = "2.11.40"
-PHONE_SYSTEM_TYPE = "2"
-
-BASE_URL = "https://api.wyzecam.com"
-SC = "a626948714654991afd3c0dbd7cdb901"
 
 def device_api(creds, url, sv, **params):
     payload = {
@@ -127,7 +117,7 @@ def device_api(creds, url, sv, **params):
         "phone_system_type": PHONE_SYSTEM_TYPE,
         "app_ver": APP_NAME + "___" + APP_VERSION,
         "phone_id": creds['phone_id'],
-        "sc": SC,
+        "sc": API_SC,
         "sv": sv,
         "ts": int(time.time()) * 1000,
     }
@@ -135,12 +125,16 @@ def device_api(creds, url, sv, **params):
     logging.debug(params)
     payload.update(params)
 
-    rsp = requests.post(BASE_URL + url, headers={'User-Agent': 'okhttp/3.8.1'}, json=payload).json()
+    rsp = requests.post(API_BASE_URL + url, headers={'User-Agent': USER_AGENT}, json=payload).json()
     logging.debug(rsp)
     if rsp['code'] != '1':
-        raise RuntimeError('Request failed, error %s:%s' % (rsp['code'], rsp['msg']))
-
+        raise WyzeApiError(rsp)
     return rsp['data']
+
+def refresh_token(creds):
+    URL_REFRESH_TOKEN = "/app/user/refresh_token"
+    SV_REFRESH_TOKEN = "d91914dd28b7492ab9dd17f7707d35a3"
+    return device_api(creds, URL_REFRESH_TOKEN, SV_REFRESH_TOKEN, refresh_token=creds["refresh_token"])
 
 def get_object_list(creds):
     URL_V2_GET_OBJECT_LIST = "/app/v2/home_page/get_object_list"
@@ -299,7 +293,7 @@ parser.add_argument(
     help='Password of the associated wyze account.')
 parser.add_argument(
     '--token',
-    default='.tokens',
+    default=os.path.expanduser("~/.wyze_token"),
     help='File for reading and storing login credential tokens.')
 
 parser.add_argument(
@@ -373,11 +367,18 @@ try:
     logging.info('Trying saved credentials from %s.', args.token)
     with open(args.token) as f:
         creds = json.load(f)
+    
+    tokens = refresh_token(creds)
+    if creds["access_token"] != tokens["access_token"] or creds["refresh_token"] != tokens["refresh_token"]:
+        creds = {**creds, **tokens, "refreshed" : True}
 except OSError:
-    creds = None
+    logging.warning("No saved credentials found, will try login with username/password...")
+    creds = {}
+except WyzeApiError:
+    logging.warning("Invalid credentials, will try login with username/password...")
+    creds = {}
 
 if not creds:
-    logging.info("No saved credentials found, logging in with username/password...")
     if not args.user:
         args.user = input("Please enter the account name:")
     
@@ -385,11 +386,14 @@ if not creds:
         args.password = input("Please enter the password:")
 
     creds = wyze_login(args.user, args.password)
+    creds["refreshed"] = True
+
+if creds.pop('refreshed', False):
+    logging.info("Credentials updated, saving to file %s", args.token)
     try:
         with open(args.token, 'w') as f:
             json.dump(creds, f)
-            logging.info('Credentials saved to %s.', args.token)
     except OSError:
-        logging.error("Failed to save credentials.")
+        logging.error("Failed to update token file %s", args.token)
 
 args.action(creds, args)
